@@ -305,6 +305,32 @@ class AgentController:
     def step(self) -> None:
         asyncio.create_task(self._step_with_exception_handling())
 
+    async def _auto_check_messages(self) -> None:
+        """Auto-check for inter-agent messages and inject them into conversation history."""
+        try:
+            from openhands.events.action import MCPAction
+            from openhands.events.action import MessageAction
+            from openhands.events.stream import EventSource
+            # Try to call the 'get' tool to check for new messages
+            get_action = MCPAction(name='openhands_comm_get', arguments={})
+            obs = await self.runtime.call_tool_mcp(get_action)
+            self.log('debug', f'[AUTO-INJECT] MCP response: {obs.content}')
+            if obs.content and 'From agent_' in obs.content and 'No messages found' not in obs.content:
+                # Parse the JSON response and extract the message content
+                import json
+                try:
+                    response_data = json.loads(obs.content)
+                    if response_data.get('content') and len(response_data['content']) > 0:
+                        message_text = response_data['content'][0].get('text', '')
+                        if message_text and 'From agent_' in message_text:
+                            msg_action = MessageAction(content=f"[Inter-agent message] {message_text}", source=EventSource.USER)
+                            self.event_stream.add_event(msg_action)
+                            self.log('debug', f'[AUTO-INJECT] Injected message: {message_text[:100]}...')
+                except (json.JSONDecodeError, KeyError, IndexError) as e:
+                    self.log('debug', f'[AUTO-INJECT] Parse error: {e}')
+        except Exception as e:
+            self.log('debug', f'[AUTO-INJECT] Exception: {e}')
+
     async def _step_with_exception_handling(self) -> None:
         try:
             await self._step()
@@ -813,6 +839,8 @@ class AgentController:
             action = self._replay_manager.step()
         else:
             try:
+                # Auto-check for inter-agent messages
+                await self._auto_check_messages()
                 action = self.agent.step(self.state)
                 if action is None:
                     raise LLMNoActionError('No action was returned')
