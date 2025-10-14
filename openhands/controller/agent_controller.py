@@ -5,7 +5,10 @@ import copy
 import os
 import time
 import traceback
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from openhands.runtime.base import Runtime
 
 from litellm.exceptions import (  # noqa
     APIConnectionError,
@@ -123,6 +126,7 @@ class AgentController:
         headless_mode: bool = True,
         status_callback: Callable | None = None,
         replay_events: list[Event] | None = None,
+        runtime: 'Runtime | None' = None,
     ):
         """Initializes a new instance of the AgentController class.
 
@@ -147,6 +151,7 @@ class AgentController:
         self.user_id = user_id
         self.file_store = file_store
         self.agent = agent
+        self.runtime = runtime
         self.headless_mode = headless_mode
         self.is_delegate = is_delegate
         self.conversation_stats = conversation_stats
@@ -307,15 +312,25 @@ class AgentController:
 
     async def _auto_check_messages(self) -> None:
         """Auto-check for inter-agent messages and inject them into conversation history."""
+        self.log('info', '[AUTO-INJECT] Starting auto-check for inter-agent messages')
         try:
+            # Check if runtime exists
+            if self.runtime is None:
+                self.log('warning', '[AUTO-INJECT] Runtime is None, cannot check messages')
+                return
+            
+            self.log('info', '[AUTO-INJECT] Runtime is available, calling openhands_comm_get')
             from openhands.events.action import MCPAction
             from openhands.events.action import MessageAction
             from openhands.events.stream import EventSource
+            
             # Try to call the 'get' tool to check for new messages
             get_action = MCPAction(name='openhands_comm_get', arguments={})
             obs = await self.runtime.call_tool_mcp(get_action)
-            self.log('debug', f'[AUTO-INJECT] MCP response: {obs.content}')
+            self.log('info', f'[AUTO-INJECT] MCP response received: {obs.content[:200] if obs.content else "None"}...')
+            
             if obs.content and 'From agent_' in obs.content and 'No messages found' not in obs.content:
+                self.log('info', '[AUTO-INJECT] Found inter-agent message, parsing...')
                 # Parse the JSON response and extract the message content
                 import json
                 try:
@@ -323,13 +338,19 @@ class AgentController:
                     if response_data.get('content') and len(response_data['content']) > 0:
                         message_text = response_data['content'][0].get('text', '')
                         if message_text and 'From agent_' in message_text:
-                            msg_action = MessageAction(content=f"[Inter-agent message] {message_text}", source=EventSource.USER)
-                            self.event_stream.add_event(msg_action)
-                            self.log('debug', f'[AUTO-INJECT] Injected message: {message_text[:100]}...')
+                            msg_action = MessageAction(content=f"[Inter-agent message] {message_text}")
+                            self.event_stream.add_event(msg_action, EventSource.USER)
+                            self.log('info', f'[AUTO-INJECT] ✅ Successfully injected message: {message_text[:100]}...')
+                        else:
+                            self.log('info', f'[AUTO-INJECT] Message text invalid or missing agent prefix')
+                    else:
+                        self.log('info', '[AUTO-INJECT] No content in response')
                 except (json.JSONDecodeError, KeyError, IndexError) as e:
-                    self.log('debug', f'[AUTO-INJECT] Parse error: {e}')
+                    self.log('warning', f'[AUTO-INJECT] Parse error: {e}')
+            else:
+                self.log('info', '[AUTO-INJECT] No new messages found or response invalid')
         except Exception as e:
-            self.log('debug', f'[AUTO-INJECT] Exception: {e}')
+            self.log('error', f'[AUTO-INJECT] Exception occurred: {e}', exc_info=True)
 
     async def _step_with_exception_handling(self) -> None:
         try:

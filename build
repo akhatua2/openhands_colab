@@ -23,7 +23,8 @@ poetry install --no-interaction
 # Generate runtime Dockerfile
 poetry run python3 openhands/runtime/utils/runtime_build.py \
     --base_image nikolaik/python-nodejs:python3.12-nodejs22 \
-    --build_folder containers/runtime
+    --build_folder containers/runtime \
+    --no_enable_browser
 
 # Build main application image
 ./containers/build.sh -i openhands --load
