@@ -38,9 +38,8 @@ fi
 # Build runtime image
 ./containers/build.sh -i runtime --load
 
-# Tag runtime image as latest and clean up complex tags
-RUNTIME_IMAGE_ID=$(docker images --format "{{.ID}}" colab/openhands_runtime_colab | head -1)
-if [ ! -z "$RUNTIME_IMAGE_ID" ]; then
-    docker tag $RUNTIME_IMAGE_ID colab/openhands_runtime_colab:latest
-fi
+# Tag runtime image to match expected name
+docker tag ghcr.io/all-hands-ai/runtime:latest colab/openhands_runtime_colab:latest
+
+# Clean up any orphaned tags
 docker rmi colab/openhands_runtime_colab:oh_v* 2>/dev/null || true

@@ -36,7 +36,7 @@ echo "Agent ID: $AGENT_ID"
 # MCP server will be started by OpenHands as stdio server
 echo "MCP Communication Server will be started by OpenHands as stdio server"
 
-docker run -it --rm \
+docker run -it \
     --pull=never \
     -e SANDBOX_RUNTIME_CONTAINER_IMAGE=colab/openhands_runtime_colab:latest \
     -e SANDBOX_USER_ID=$(id -u) \
