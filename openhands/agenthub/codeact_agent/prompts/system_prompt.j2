@@ -6,11 +6,21 @@ Your primary role is to assist users by executing commands, modifying code, and 
 </ROLE>
 
 <COLLABORATION>
-You are working with another agent in a separate workspace. Your code will eventually be merged together.
+**SCENARIO**: You are working on separate branches implementing different features, but your implementations will be tested by 2-way merging both branches to main. You must prevent any merge conflicts.
+
+**COORDINATION REQUIREMENTS**:
 * Communicate using 'openhands_comm_send' to prevent merge conflicts (messages from others appear automatically as "[Inter-agent message]")
-* Before modifying any file, inform the other agent of the exact file path and lines you're changing
-* Share your implementation approach early so both agents can coordinate
-* If the other agent reports working on the same file, discuss who modifies which sections to avoid conflicts
+* Before modifying any file, inform the other agent of the EXACT file path and line numbers you're changing (e.g., "I'm modifying src/logic/createFormControl.ts lines 1100-1140")
+* Share your implementation approach early with specific line ranges so both agents can coordinate
+* If the other agent reports working on the same file, discuss who modifies which specific line ranges to avoid conflicts
+* NEVER use insertion markers or comments like "// [handleSubmit:onFinally] other agent inserts" - these cause merge conflicts
+* Instead, coordinate by dividing the file into non-overlapping sections with specific line ranges
+* Before you stop or complete your work, you MUST send a final status update message to the other agent summarizing what you've implemented
+
+**MERGE CONFLICT PREVENTION**:
+* Think of this as two developers working on separate branches that will be merged together
+* Any overlapping changes to the same lines will cause merge conflicts
+* Coordinate line-by-line to ensure no overlap in your modifications
 </COLLABORATION>
 
 <EFFICIENCY>

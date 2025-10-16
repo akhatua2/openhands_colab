@@ -31,11 +31,11 @@ WORKSPACE2="${DATASET_DIR}/agent_workspace/${PROJECT}_feature${FEATURE2_ID}_feat
 mkdir -p "$DB_DIR" "$LOGS_DIR"
 
 # Load feature descriptions
-FEATURE1_DESC=$(cat "$DATASET_DIR/feature${FEATURE1_ID}/feature_description.md" 2>/dev/null || echo "Feature ${FEATURE1_ID}")
-FEATURE2_DESC=$(cat "$DATASET_DIR/feature${FEATURE2_ID}/feature_description.md" 2>/dev/null || echo "Feature ${FEATURE2_ID}")
+FEATURE1_DESC=$(cat "$DATASET_DIR/feature${FEATURE1_ID}/feature.md" 2>/dev/null || echo "Feature ${FEATURE1_ID}")
+FEATURE2_DESC=$(cat "$DATASET_DIR/feature${FEATURE2_ID}/feature.md" 2>/dev/null || echo "Feature ${FEATURE2_ID}")
 
 # Load plans from actual logs location
-ACTUAL_LOGS="$BASE_DIR/logs/cotomata_colab/${PROJECT}/task${TASK_ID}/feature${FEATURE1_ID}_feature${FEATURE2_ID}"
+ACTUAL_LOGS="$BASE_DIR/logs/cotomata/${PROJECT}/task${TASK_ID}/feature${FEATURE1_ID}_feature${FEATURE2_ID}"
 PLAN1=$(cat "$ACTUAL_LOGS/plan_gpt5_k1_feature${FEATURE1_ID}.md" 2>/dev/null || echo "No plan available")
 PLAN2=$(cat "$ACTUAL_LOGS/plan_gpt5_k1_feature${FEATURE2_ID}.md" 2>/dev/null || echo "No plan available")
 
@@ -85,7 +85,8 @@ Work directory: /workspace"
 
     echo "Starting Agent $agent_num (ID: $agent_id)..."
     
-    docker run -d --rm \
+    # Run in background but capture logs
+    docker run --rm \
         --pull=never \
         -e SANDBOX_RUNTIME_CONTAINER_IMAGE=colab/openhands_runtime_colab:latest \
         -e SANDBOX_USER_ID=$(id -u) \
@@ -103,10 +104,12 @@ Work directory: /workspace"
         --add-host host.docker.internal:host-gateway \
         --name "$container_name" \
         colab/openhands_colab:latest \
-        python -m openhands.core.main --config-file /app/config.toml --log-level DEBUG -t "$task"
+        python -m openhands.core.main --config-file /app/config.toml --log-level DEBUG -t "$task" \
+        > "$LOGS_DIR/agent_${agent_num}_output.log" 2>&1 &
     
     echo "  Container: $container_name"
     echo "  Trajectory: $trajectory_file"
+    echo "  Logs: $LOGS_DIR/agent_${agent_num}_output.log"
 }
 
 # Start both agents
@@ -120,17 +123,23 @@ echo "Both agents started!"
 echo "=========================================="
 echo ""
 echo "🔍 MONITOR:"
-echo "  docker ps"
-echo "  docker logs -f openhands-agent_1-*"
-echo "  docker logs -f openhands-agent_2-*"
+echo "  # Stream logs from both agents:"
+echo "  tail -f $LOGS_DIR/agent_1_output.log"
+echo "  tail -f $LOGS_DIR/agent_2_output.log"
+echo "  # Or watch both simultaneously:"
+echo "  tail -f $LOGS_DIR/agent_*_output.log"
 echo ""
 echo "📊 CHECK MESSAGES:"
 echo "  sqlite3 $DB_DIR/openhands_messages.db 'SELECT * FROM messages ORDER BY timestamp;'"
 echo ""
 echo "🛑 STOP:"
+echo "  pkill -f 'docker run.*openhands_colab'"
+echo "  # Or find and kill specific containers:"
+echo "  docker ps --filter name=openhands-agent"
 echo "  docker stop \$(docker ps -q --filter name=openhands-agent)"
 echo ""
 echo "📁 OUTPUTS:"
+echo "  Live Logs:     $LOGS_DIR/agent_*_output.log"
 echo "  Trajectories: $LOGS_DIR/trajectory_agent_*.json"
 echo "  Database:     $DB_DIR/openhands_messages.db"
 echo "  Workspace 1:  $WORKSPACE1"
