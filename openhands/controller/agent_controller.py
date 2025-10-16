@@ -326,31 +326,44 @@ class AgentController:
             
             # Try to call the 'get' tool to check for new messages
             get_action = MCPAction(name='openhands_comm_get', arguments={})
-            obs = await self.runtime.call_tool_mcp(get_action)
-            self.log('info', f'[AUTO-INJECT] MCP response received: {obs.content[:200] if obs.content else "None"}...')
+            try:
+                obs = await self.runtime.call_tool_mcp(get_action)
+            except ValueError as e:
+                # MCP clients not available yet (likely still initializing)
+                self.log('debug', f'[AUTO-INJECT] MCP not ready: {e}')
+                return
             
-            if obs.content and 'From agent_' in obs.content and 'No messages found' not in obs.content:
-                self.log('info', '[AUTO-INJECT] Found inter-agent message, parsing...')
-                # Parse the JSON response and extract the message content
-                import json
-                try:
-                    response_data = json.loads(obs.content)
-                    if response_data.get('content') and len(response_data['content']) > 0:
-                        message_text = response_data['content'][0].get('text', '')
-                        if message_text and 'From agent_' in message_text:
-                            msg_action = MessageAction(content=f"[Inter-agent message] {message_text}")
-                            self.event_stream.add_event(msg_action, EventSource.USER)
-                            self.log('info', f'[AUTO-INJECT] ✅ Successfully injected message: {message_text[:100]}...')
-                        else:
-                            self.log('info', f'[AUTO-INJECT] Message text invalid or missing agent prefix')
-                    else:
-                        self.log('info', '[AUTO-INJECT] No content in response')
-                except (json.JSONDecodeError, KeyError, IndexError) as e:
-                    self.log('warning', f'[AUTO-INJECT] Parse error: {e}')
-            else:
-                self.log('info', '[AUTO-INJECT] No new messages found or response invalid')
+            if not obs.content:
+                self.log('info', '[AUTO-INJECT] No response content')
+                return
+            
+            # Parse the JSON response
+            import json
+            try:
+                response_data = json.loads(obs.content)
+                if not response_data.get('content') or len(response_data['content']) == 0:
+                    self.log('info', '[AUTO-INJECT] Empty response')
+                    return
+                
+                message_text = response_data['content'][0].get('text', '')
+                
+                # Early exit if no new messages
+                if 'No new messages' in message_text:
+                    self.log('debug', '[AUTO-INJECT] No new messages')
+                    return
+                
+                # Inject if this is an inter-agent message
+                if message_text and 'From agent_' in message_text:
+                    msg_action = MessageAction(content=f"[Inter-agent message] {message_text}")
+                    self.event_stream.add_event(msg_action, EventSource.USER)
+                    self.log('info', f'[AUTO-INJECT] ✅ Injected message: {message_text[:100]}...')
+                else:
+                    self.log('info', '[AUTO-INJECT] Response invalid or missing agent prefix')
+                    
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                self.log('warning', f'[AUTO-INJECT] Parse error: {e}')
         except Exception as e:
-            self.log('error', f'[AUTO-INJECT] Exception occurred: {e}', exc_info=True)
+            self.log('error', f'[AUTO-INJECT] Exception occurred: {e}')
 
     async def _step_with_exception_handling(self) -> None:
         try:

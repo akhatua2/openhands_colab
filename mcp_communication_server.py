@@ -59,13 +59,9 @@ def handle_request(request: Dict[str, Any]) -> Dict[str, Any]:
                 try:
                     with open(agent_id_file, 'r') as f:
                         AGENT_ID = f.read().strip()
-                    print(f"DEBUG: Read agent ID from {agent_id_file}: {AGENT_ID}", file=sys.stderr)
                     break
-                except Exception as e:
-                    print(f"DEBUG: Failed to read agent ID file {agent_id_file}: {e}", file=sys.stderr)
-        
-        if AGENT_ID == "unknown_agent":
-            print(f"DEBUG: No agent ID files found in {agent_id_paths}", file=sys.stderr)
+                except Exception:
+                    pass  # Silently try next path
     
     agent_id = AGENT_ID
     db_dir = "/app/db" if os.path.exists("/app/db") else "."
@@ -168,17 +164,26 @@ def handle_request(request: Dict[str, Any]) -> Dict[str, Any]:
             
             try:
                 conn = sqlite3.connect(db_path)
+                # Only get UNREAD messages from OTHER agents (not self)
                 cursor = conn.execute(
-                    "SELECT sender_id, content, timestamp FROM messages WHERE recipient_id = ? OR recipient_id = 'broadcast' ORDER BY timestamp DESC LIMIT ?",
-                    (agent_id, limit)
+                    "SELECT id, sender_id, content, timestamp FROM messages WHERE (recipient_id = ? OR recipient_id = 'broadcast') AND sender_id != ? AND is_read = FALSE ORDER BY timestamp ASC LIMIT ?",
+                    (agent_id, agent_id, limit)
                 )
                 messages = cursor.fetchall()
-                conn.close()
-
+                
                 if messages:
-                    result = "\n".join([f"From {msg[0]} at {msg[2]}: {msg[1]}" for msg in messages])
+                    # Mark them as read
+                    message_ids = [msg[0] for msg in messages]
+                    placeholders = ','.join('?' * len(message_ids))
+                    conn.execute(f"UPDATE messages SET is_read = TRUE WHERE id IN ({placeholders})", message_ids)
+                    conn.commit()
+                    
+                    # Format result (skip the id field)
+                    result = "\n".join([f"From {msg[1]} at {msg[3]}: {msg[2]}" for msg in messages])
                 else:
-                    result = "No messages found"
+                    result = "No new messages"
+                
+                conn.close()
 
                 return {
                     'jsonrpc': '2.0',
@@ -198,8 +203,7 @@ def handle_request(request: Dict[str, Any]) -> Dict[str, Any]:
 
 def main():
     """Main stdio MCP server loop"""
-    print(f"OpenHands Communication MCP Server starting...", file=sys.stderr)
-    print(f"Agent ID: {os.environ.get('OPENHANDS_AGENT_ID', 'unknown')}", file=sys.stderr)
+    # Minimize stderr output during startup for FastMCP compatibility
     
     for line in sys.stdin:
         line = line.strip()
@@ -228,5 +232,5 @@ if __name__ == "__main__":
         # Try environment variable as fallback
         AGENT_ID = os.environ.get('OPENHANDS_AGENT_ID', 'unknown_agent')
     
-    print(f"MCP Communication Server starting with Agent ID: {AGENT_ID}", file=sys.stderr)
+    # Start main loop (minimal stderr output for FastMCP compatibility)
     main()
