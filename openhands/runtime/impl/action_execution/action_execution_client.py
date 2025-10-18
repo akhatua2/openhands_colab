@@ -371,6 +371,8 @@ class ActionExecutionClient(Runtime):
 
         # Add the runtime as another MCP server
         updated_mcp_config = self.config.mcp.model_copy()
+        # Fix: Create a new list to prevent duplicates from accumulating
+        updated_mcp_config.sse_servers = self.config.mcp.sse_servers.copy()
 
         # Get current stdio servers
         current_stdio_servers: list[MCPStdioServerConfig] = list(

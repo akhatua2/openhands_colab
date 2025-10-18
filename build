@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# OpenHands Colab Build Script
+# Rebuilds all necessary Docker images for the custom OpenHands setup
+
+set -e
+
+# Check if we're in the right directory
+if [ ! -f "pyproject.toml" ] || [ ! -d "openhands" ]; then
+    echo "Error: Please run this script from the OpenHands root directory"
+    exit 1
+fi
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "Error: Docker is not running"
+    exit 1
+fi
+
+# Install dependencies
+poetry install --no-interaction
+
+# Generate runtime Dockerfile
+poetry run python3 openhands/runtime/utils/runtime_build.py \
+    --base_image nikolaik/python-nodejs:python3.12-nodejs22 \
+    --build_folder containers/runtime \
+    --no_enable_browser
+
+# Build main application image
+./containers/build.sh -i openhands --load
+
+# Tag the main app image properly
+MAIN_IMAGE_ID=$(docker images --format "{{.ID}}" --filter "dangling=true" | head -1)
+if [ ! -z "$MAIN_IMAGE_ID" ]; then
+    docker tag $MAIN_IMAGE_ID colab/openhands_colab:latest
+fi
+
+# Build runtime image
+./containers/build.sh -i runtime --load
+
+# Tag runtime image to match expected name
+docker tag ghcr.io/all-hands-ai/runtime:latest colab/openhands_runtime_colab:latest
+
+# Clean up any orphaned tags
+docker rmi colab/openhands_runtime_colab:oh_v* 2>/dev/null || true

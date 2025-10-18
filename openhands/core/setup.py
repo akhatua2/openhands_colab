@@ -245,6 +245,7 @@ def create_controller(
         headless_mode=headless_mode,
         confirmation_mode=config.security.confirmation_mode,
         replay_events=replay_events,
+        runtime=runtime,
     )
     return (controller, initial_state)
 
