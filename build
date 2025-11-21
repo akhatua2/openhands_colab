@@ -20,11 +20,12 @@ fi
 # Install dependencies
 poetry install --no-interaction
 
-# Generate runtime Dockerfile
+# Generate runtime Dockerfile (force rebuild from scratch to include micromamba)
 poetry run python3 openhands/runtime/utils/runtime_build.py \
     --base_image nikolaik/python-nodejs:python3.12-nodejs22 \
     --build_folder containers/runtime \
-    --no_enable_browser
+    --no_enable_browser \
+    --force_rebuild
 
 # Build main application image
 ./containers/build.sh -i openhands --load
