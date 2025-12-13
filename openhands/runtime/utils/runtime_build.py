@@ -93,14 +93,8 @@ def get_runtime_image_repo_and_tag(base_image: str) -> tuple[str, str]:
         else:
             repo = repo.replace('/', '_s_')
 
-        new_tag = f'oh_v{oh_version}_image_{repo}_tag_{tag}'
-
-        # if it's still too long, hash the entire image name
-        if len(new_tag) > 128:
-            new_tag = f'oh_v{oh_version}_image_{hashlib.md5(new_tag.encode()).hexdigest()[:64]}'
-            logger.warning(
-                f'The new tag [{new_tag}] is still too long, so we use an hash of the entire image name: {new_tag}'
-            )
+        # Use simple 'latest' tag instead of complex versioned tag
+        new_tag = 'latest'
 
         return get_runtime_image_repo(), new_tag
 
@@ -177,13 +171,10 @@ def build_runtime_image_in_folder(
     enable_browser: bool = True,
 ) -> str:
     runtime_image_repo, _ = get_runtime_image_repo_and_tag(base_image)
-    lock_tag = f'oh_v{oh_version}_{get_hash_for_lock_files(base_image, enable_browser)}'
-    versioned_tag = (
-        # truncate the base image to 96 characters to fit in the tag max length (128 characters)
-        f'oh_v{oh_version}_{get_tag_for_versioned_image(base_image)}'
-    )
+    lock_tag = 'latest'
+    versioned_tag = 'latest'
     versioned_image_name = f'{runtime_image_repo}:{versioned_tag}'
-    source_tag = f'{lock_tag}_{get_hash_for_source_files()}'
+    source_tag = 'latest'
     hash_image_name = f'{runtime_image_repo}:{source_tag}'
 
     logger.info(f'Building image: {hash_image_name}')

@@ -5,7 +5,10 @@ import copy
 import os
 import time
 import traceback
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from openhands.runtime.base import Runtime
 
 from litellm.exceptions import (  # noqa
     APIConnectionError,
@@ -123,6 +126,7 @@ class AgentController:
         headless_mode: bool = True,
         status_callback: Callable | None = None,
         replay_events: list[Event] | None = None,
+        runtime: 'Runtime | None' = None,
     ):
         """Initializes a new instance of the AgentController class.
 
@@ -147,6 +151,7 @@ class AgentController:
         self.user_id = user_id
         self.file_store = file_store
         self.agent = agent
+        self.runtime = runtime
         self.headless_mode = headless_mode
         self.is_delegate = is_delegate
         self.conversation_stats = conversation_stats
@@ -304,6 +309,61 @@ class AgentController:
 
     def step(self) -> None:
         asyncio.create_task(self._step_with_exception_handling())
+
+    async def _auto_check_messages(self) -> None:
+        """Auto-check for inter-agent messages and inject them into conversation history."""
+        self.log('info', '[AUTO-INJECT] Starting auto-check for inter-agent messages')
+        try:
+            # Check if runtime exists
+            if self.runtime is None:
+                self.log('warning', '[AUTO-INJECT] Runtime is None, cannot check messages')
+                return
+            
+            self.log('info', '[AUTO-INJECT] Runtime is available, calling openhands_comm_get')
+            from openhands.events.action import MCPAction
+            from openhands.events.action import MessageAction
+            from openhands.events.stream import EventSource
+            
+            # Try to call the 'get' tool to check for new messages
+            get_action = MCPAction(name='openhands_comm_get', arguments={})
+            try:
+                obs = await self.runtime.call_tool_mcp(get_action)
+            except ValueError as e:
+                # MCP clients not available yet (likely still initializing)
+                self.log('debug', f'[AUTO-INJECT] MCP not ready: {e}')
+                return
+            
+            if not obs.content:
+                self.log('info', '[AUTO-INJECT] No response content')
+                return
+            
+            # Parse the JSON response
+            import json
+            try:
+                response_data = json.loads(obs.content)
+                if not response_data.get('content') or len(response_data['content']) == 0:
+                    self.log('info', '[AUTO-INJECT] Empty response')
+                    return
+                
+                message_text = response_data['content'][0].get('text', '')
+                
+                # Early exit if no new messages
+                if 'No new messages' in message_text:
+                    self.log('debug', '[AUTO-INJECT] No new messages')
+                    return
+                
+                # Inject if this is an inter-agent message
+                if message_text and 'From agent_' in message_text:
+                    msg_action = MessageAction(content=f"[Inter-agent message] {message_text}")
+                    self.event_stream.add_event(msg_action, EventSource.USER)
+                    self.log('info', f'[AUTO-INJECT] ✅ Injected message: {message_text[:100]}...')
+                else:
+                    self.log('info', '[AUTO-INJECT] Response invalid or missing agent prefix')
+                    
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                self.log('warning', f'[AUTO-INJECT] Parse error: {e}')
+        except Exception as e:
+            self.log('error', f'[AUTO-INJECT] Exception occurred: {e}')
 
     async def _step_with_exception_handling(self) -> None:
         try:
@@ -813,6 +873,8 @@ class AgentController:
             action = self._replay_manager.step()
         else:
             try:
+                # Auto-check for inter-agent messages
+                await self._auto_check_messages()
                 action = self.agent.step(self.state)
                 if action is None:
                     raise LLMNoActionError('No action was returned')

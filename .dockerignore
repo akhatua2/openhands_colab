@@ -13,6 +13,8 @@ frontend/node_modules
 
 # Hidden files and directories
 .*
+# macOS resource fork files (explicitly exclude even though .* should catch them)
+._*
 __pycache__
 
 # Unneded files and directories

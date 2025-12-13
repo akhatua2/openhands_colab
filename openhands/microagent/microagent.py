@@ -282,7 +282,11 @@ def load_microagents_from_dir(
         if (microagent_dir.parent.parent / '.cursorrules').exists():
             cursorrules_files = [microagent_dir.parent.parent / '.cursorrules']
 
-        md_files = [f for f in microagent_dir.rglob('*.md') if f.name != 'README.md']
+        # Filter out macOS resource fork files (._*) and README.md
+        md_files = [
+            f for f in microagent_dir.rglob('*.md')
+            if f.name != 'README.md' and not f.name.startswith('._')
+        ]
 
         # Process all files in one loop
         for file in chain(cursorrules_files, md_files):
